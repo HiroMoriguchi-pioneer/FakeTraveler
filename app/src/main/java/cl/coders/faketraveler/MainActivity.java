@@ -1,18 +1,22 @@
 package cl.coders.faketraveler;
 
-import android.app.AlarmManager;
-import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.Log;
+import android.util.Xml;
 import android.view.View;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
@@ -24,17 +28,23 @@ import static cl.coders.faketraveler.MainActivity.SourceChange.CHANGE_FROM_EDITT
 import static cl.coders.faketraveler.MainActivity.SourceChange.CHANGE_FROM_MAP;
 import static cl.coders.faketraveler.MainActivity.SourceChange.NONE;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Locale;
+
 
 public class MainActivity extends AppCompatActivity {
 
     static final String sharedPrefKey = "cl.coders.mockposition.sharedpreferences";
     static final int KEEP_GOING = 0;
-    static private int SCHEDULE_REQUEST_CODE = 1;
-    public static Intent serviceIntent;
-    public static PendingIntent pendingIntent;
-    public static AlarmManager alarmManager;
+    static private final int SCHEDULE_REQUEST_CODE = 101;
     static Button button0;
     static Button button1;
+    static Button button2;
     static WebView webView;
     static EditText editTextLat;
     static EditText editTextLng;
@@ -43,7 +53,10 @@ public class MainActivity extends AppCompatActivity {
     static SharedPreferences.Editor editor;
     static Double lat;
     static Double lng;
+    static Double llat;
+    static Double llng;
     static int timeInterval;
+    static int speedLimit;
     static int howManyTimes;
     static long endTime;
     static int currentVersion;
@@ -58,6 +71,9 @@ public class MainActivity extends AppCompatActivity {
 
     static SourceChange srcChange = NONE;
 
+    static int index = 0;
+    static boolean active = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -66,12 +82,12 @@ public class MainActivity extends AppCompatActivity {
         context = getApplicationContext();
         webView = findViewById(R.id.webView0);
         webAppInterface = new WebAppInterface(this, this);
-        alarmManager = (AlarmManager) this.getSystemService(Context.ALARM_SERVICE);
         sharedPref = context.getSharedPreferences(sharedPrefKey, Context.MODE_PRIVATE);
         editor = sharedPref.edit();
 
         button0 = (Button) findViewById(R.id.button0);
         button1 = (Button) findViewById(R.id.button1);
+        button2 = (Button) findViewById(R.id.button2);
         editTextLat = findViewById(R.id.editText0);
         editTextLng = findViewById(R.id.editText1);
 
@@ -104,15 +120,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         checkSharedPrefs();
-
-        howManyTimes = Integer.parseInt(sharedPref.getString("howManyTimes", "1"));
-        timeInterval = Integer.parseInt(sharedPref.getString("timeInterval", "10"));
+        loadPref(sharedPref);
 
         try {
-            lat = Double.parseDouble(sharedPref.getString("lat", ""));
-            lng = Double.parseDouble(sharedPref.getString("lng", ""));
-            editTextLat.setText(lat.toString());
-            editTextLng.setText(lng.toString());
+            editTextLat.setText(String.format(Locale.getDefault(), "%f", lat));
+            editTextLng.setText(String.format(Locale.getDefault(), "%f", lng));
         } catch (NumberFormatException e) {
             e.printStackTrace();
         }
@@ -169,9 +181,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        endTime = sharedPref.getLong("endTime", 0);
-
-        if (pendingIntent != null && endTime > System.currentTimeMillis()) {
+        if (TickService.active && endTime > System.currentTimeMillis()) {
             changeButtonToStop();
         } else {
             endTime = 0;
@@ -179,6 +189,16 @@ public class MainActivity extends AppCompatActivity {
             editor.commit();
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            button2.setVisibility(View.VISIBLE);
+            button2.setOnClickListener((v) -> {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"text/xml", "application/vnd.google-earth.kml+xml"});
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                startActivityForResult(Intent.createChooser(intent, "Open File"), SCHEDULE_REQUEST_CODE);
+            });
+        }
     }
 
     @Override
@@ -204,9 +224,12 @@ public class MainActivity extends AppCompatActivity {
         int version = sharedPref.getInt("version", 0);
         String lat = sharedPref.getString("lat", "N/A");
         String lng = sharedPref.getString("lng", "N/A");
+        String llat = sharedPref.getString("llat", "N/A");
+        String llng = sharedPref.getString("llng", "N/A");
         String howManyTimes = sharedPref.getString("howManyTimes", "N/A");
         String timeInterval = sharedPref.getString("timeInterval", "N/A");
-        Long endTime = sharedPref.getLong("endTime", 0);
+        String speedLimit = sharedPref.getString("speedLimit", "N/A");
+        //Long endTime = sharedPref.getLong("endTime", 0);
 
         if (version != currentVersion) {
             editor.putInt("version", currentVersion);
@@ -216,22 +239,61 @@ public class MainActivity extends AppCompatActivity {
         try {
             Double.parseDouble(lat);
             Double.parseDouble(lng);
+            Double.parseDouble(llat);
+            Double.parseDouble(llng);
             Double.parseDouble(howManyTimes);
             Double.parseDouble(timeInterval);
+            Double.parseDouble(speedLimit);
         } catch (NumberFormatException e) {
             editor.clear();
             editor.putString("lat", lat);
             editor.putString("lng", lng);
+            editor.putString("llat", lat);
+            editor.putString("llng", lng);
             editor.putInt("version", currentVersion);
-            editor.putString("howManyTimes", "1");
-            editor.putString("timeInterval", "10");
+            editor.putString("howManyTimes", "0");
+            editor.putString("timeInterval", "1000");
+            editor.putString("speedLimit", "40");
             editor.putLong("endTime", 0);
+            editor.putString("list", "");
             editor.commit();
             e.printStackTrace();
         }
 
     }
 
+    static void loadPref(SharedPreferences sharedPref) {
+        try {
+            howManyTimes = Integer.parseInt(sharedPref.getString("howManyTimes", "0"));
+        } catch (NumberFormatException ignore) {}
+        try {
+            timeInterval = Integer.parseInt(sharedPref.getString("timeInterval", "1000"));
+        } catch (NumberFormatException ignore) {}
+        if (timeInterval < 100) {
+            timeInterval = 100;
+        }
+        try {
+            speedLimit = Integer.parseInt(sharedPref.getString("speedLimit", "40"));
+        } catch (NumberFormatException ignore) {}
+        if (speedLimit < 1) {
+            speedLimit = 1;
+        }
+
+        try {
+            lat = Double.parseDouble(sharedPref.getString("lat", ""));
+            lng = Double.parseDouble(sharedPref.getString("lng", ""));
+        } catch (NumberFormatException e) {
+        }
+        try {
+            llat = Double.parseDouble(sharedPref.getString("llat", ""));
+            llng = Double.parseDouble(sharedPref.getString("llng", ""));
+        } catch (NumberFormatException e) {
+        }
+        if (llat == null) llat = lat;
+        if (llng == null) llng = lng;
+
+        endTime = sharedPref.getLong("endTime", 0);
+    }
     /**
      * Apply a mocked location, and start an alarm to keep doing it if howManyTimes is > 1
      * This method is called when "Apply" button is pressed.
@@ -247,7 +309,7 @@ public class MainActivity extends AppCompatActivity {
 
         toast(context.getResources().getString(R.string.MainActivity_MockApplied));
 
-        endTime = System.currentTimeMillis() + (howManyTimes - 1) * timeInterval * 1000;
+        endTime = System.currentTimeMillis() + (long) (howManyTimes - 1) * timeInterval;
         editor.putLong("endTime", endTime);
         editor.commit();
 
@@ -263,11 +325,12 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        exec(lat, lng);
+        active = true;
+        exec(lat, lng,0 ,1 );
 
-        if (!hasEnded()) {
+        if (!hasEnded() && !TickService.active) {
             toast(context.getResources().getString(R.string.MainActivity_MockLocRunning));
-            setAlarm(timeInterval);
+            TickService.startTick(context);
         } else {
             stopMockingLocation();
         }
@@ -276,20 +339,27 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Set a mocked location.
      *
-     * @param lat latitude
-     * @param lng longitude
+     * @param lat         latitude
+     * @param lng         longitude
+     * @param speed       speed
+     * @param orientation azimuth
      */
-    static void exec(double lat, double lng) {
+    static void exec(double lat, double lng, float speed, float orientation) {
+        if (!active) return;
         try {
-            //MockLocationProvider mockNetwork = new MockLocationProvider(LocationManager.NETWORK_PROVIDER, context);
-            mockNetwork.pushLocation(lat, lng);
-            //MockLocationProvider mockGps = new MockLocationProvider(LocationManager.GPS_PROVIDER, context);
-            mockGps.pushLocation(lat, lng);
+            Log.d(TickService.TAG,String.format("%f,%f,%f,%f",lat,lng,speed,orientation));
+            mockNetwork.pushLocation(lat, lng, speed, orientation);
+            mockGps.pushLocation(lat, lng, speed, orientation);
+
+            llat = lat;
+            llng = lng;
+            editor.putString("llat", llat.toString());
+            editor.putString("llng", llng.toString());
+            editor.commit();
         } catch (Exception e) {
+            e.printStackTrace();
             toast(context.getResources().getString(R.string.MainActivity_MockNotApplied));
             changeButtonToApply();
-            e.printStackTrace();
-            return;
         }
     }
 
@@ -301,35 +371,8 @@ public class MainActivity extends AppCompatActivity {
     static boolean hasEnded() {
         if (howManyTimes == KEEP_GOING) {
             return false;
-        } else if (System.currentTimeMillis() > endTime) {
-            return true;
         } else {
-            return false;
-        }
-    }
-
-    /**
-     * Sets the next alarm accordingly to <seconds>
-     *
-     * @param seconds number of seconds
-     */
-    static void setAlarm(int seconds) {
-        serviceIntent = new Intent(context, ApplyMockBroadcastReceiver.class);
-        pendingIntent = PendingIntent.getBroadcast(context, SCHEDULE_REQUEST_CODE, serviceIntent, PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-        try {
-            if (Build.VERSION.SDK_INT >= 19) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC, System.currentTimeMillis() + seconds * 1000, pendingIntent);
-                } else {
-                    alarmManager.setExact(AlarmManager.RTC, System.currentTimeMillis() + timeInterval * 1000, pendingIntent);
-                }
-            } else {
-                alarmManager.set(AlarmManager.RTC, System.currentTimeMillis() + timeInterval * 1000, pendingIntent);
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
+            return System.currentTimeMillis() > endTime;
         }
     }
 
@@ -360,10 +403,12 @@ public class MainActivity extends AppCompatActivity {
     protected static void stopMockingLocation() {
         changeButtonToApply();
         editor.putLong("endTime", System.currentTimeMillis() - 1);
+        editor.putString("list", "");
         editor.commit();
+        index = 0;
 
-        if (pendingIntent != null) {
-            alarmManager.cancel(pendingIntent);
+        if (TickService.active) {
+            TickService.stopTick(context);
             toast(context.getResources().getString(R.string.MainActivity_MockStopped));
         }
 
@@ -371,6 +416,7 @@ public class MainActivity extends AppCompatActivity {
             mockNetwork.shutdown();
         if (mockGps != null)
             mockGps.shutdown();
+        active = false;
     }
 
     /**
@@ -444,5 +490,112 @@ public class MainActivity extends AppCompatActivity {
      */
     static String getLng() {
         return editTextLng.getText().toString();
+    }
+
+    private void skip(XmlPullParser parser) throws XmlPullParserException, IOException {
+        if (parser.getEventType() != XmlPullParser.START_TAG) {
+            throw new IllegalStateException();
+        }
+        int depth = 1;
+        while (depth != 0) {
+            switch (parser.next()) {
+                case XmlPullParser.END_TAG:
+                    depth--;
+                    break;
+                case XmlPullParser.START_TAG:
+                    depth++;
+                    break;
+            }
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == SCHEDULE_REQUEST_CODE && resultCode == RESULT_OK && data != null) {
+            stopMockingLocation();
+            Uri uri = data.getData();
+            if (uri != null) {
+                try {
+                    boolean gotPos = false;
+                    InputStream file = getContentResolver().openInputStream(uri);
+                    XmlPullParser p = Xml.newPullParser();
+                    p.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES,false);
+                    p.setInput(file,null);
+                    p.nextTag();
+                    p.require(XmlPullParser.START_TAG, null,"kml");
+                    while (p.next() != XmlPullParser.END_TAG) {
+                        if (p.getEventType() != XmlPullParser.START_TAG) {
+                            continue;
+                        }
+                        if (!"Document".equals(p.getName())) {
+                            skip(p);
+                            continue;
+                        }
+                        p.require(XmlPullParser.START_TAG, null, "Document");
+                        while (p.next() != XmlPullParser.END_TAG) {
+                            if (p.getEventType() != XmlPullParser.START_TAG) {
+                                continue;
+                            }
+                            if (!"Placemark".equals(p.getName())) {
+                                skip(p);
+                                continue;
+                            }
+                            p.require(XmlPullParser.START_TAG, null, "Placemark");
+                            while (p.next() != XmlPullParser.END_TAG) {
+                                if (p.getEventType() != XmlPullParser.START_TAG) {
+                                    continue;
+                                }
+                                if (!"LineString".equals(p.getName())) {
+                                    skip(p);
+                                    continue;
+                                }
+                                p.require(XmlPullParser.START_TAG, null, "LineString");
+                                while (p.next() != XmlPullParser.END_TAG) {
+                                    if (p.getEventType() != XmlPullParser.START_TAG) {
+                                        continue;
+                                    }
+                                    if (!"coordinates".equals(p.getName())) {
+                                        skip(p);
+                                        continue;
+                                    }
+                                    if (p.next() == XmlPullParser.TEXT) {
+                                        String result = p.getText();
+                                        String[] lines = result.split("\n");
+                                        if (lines.length > 0) {
+                                            StringBuilder sb = new StringBuilder();
+                                            for (String line:lines) {
+                                                String t = line.trim();
+                                                int i = t.lastIndexOf(",");
+                                                if (i>0) {
+                                                    String v=t.substring(0, i);
+                                                    sb.append(v).append("\n");
+                                                    if (!gotPos) {
+                                                        String[] xy = v.split(",");
+                                                        lat = Double.parseDouble(xy[1]);
+                                                        editTextLat.setText(xy[1]);
+                                                        lng = Double.parseDouble(xy[0]);
+                                                        editTextLng.setText(xy[0]);
+                                                    }
+                                                    gotPos = true;
+                                                }
+                                            }
+                                            editor.putString("list", sb.toString());
+                                        }
+                                        p.nextTag();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (FileNotFoundException e) {
+                    throw new RuntimeException(e);
+                } catch (XmlPullParserException e) {
+                    throw new RuntimeException(e);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
     }
 }

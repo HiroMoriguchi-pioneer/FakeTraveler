@@ -6,11 +6,6 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     tools:context=".MainActivity">
-    <LinearLayout
-        android:focusable="true"
-        android:focusableInTouchMode="true"
-        android:layout_width="0px"
-        android:layout_height="0px"/>
 
     <LinearLayout
         android:layout_width="wrap_content"
@@ -48,6 +43,14 @@
             android:layout_height="match_parent"
             android:layout_weight="4"
             android:text="@string/ActivityMain_..." />
+
+        <Button
+            android:id="@+id/button2"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="3"
+            android:text="@string/ActivityMain_KML"
+            android:visibility="gone" />
 
     </LinearLayout>
 

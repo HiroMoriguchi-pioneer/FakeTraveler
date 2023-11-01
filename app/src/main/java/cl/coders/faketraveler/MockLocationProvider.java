@@ -15,7 +15,6 @@ public class MockLocationProvider {
      *
      * @param name provider
      * @param ctx  context
-     * @return Void
      */
     public MockLocationProvider(String name, Context ctx) {
         this.providerName = name;
@@ -54,9 +53,8 @@ public class MockLocationProvider {
      *
      * @param lat latitude
      * @param lon longitude
-     * @return Void
      */
-    public void pushLocation(double lat, double lon) {
+    public void pushLocation(double lat, double lon, float speed, float orientation) {
         LocationManager lm = (LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
 
         Location mockLocation = new Location(providerName);
@@ -64,15 +62,14 @@ public class MockLocationProvider {
         mockLocation.setLongitude(lon);
         mockLocation.setAltitude(3F);
         mockLocation.setTime(System.currentTimeMillis());
-        //mockLocation.setAccuracy(16F);
-        mockLocation.setSpeed(0.01F);
-        mockLocation.setBearing(1F);
+        mockLocation.setSpeed(speed);
+        mockLocation.setBearing(orientation);
         mockLocation.setAccuracy(3F);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mockLocation.setBearingAccuracyDegrees(0.1F);
+            mockLocation.setBearingAccuracyDegrees(1);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mockLocation.setVerticalAccuracyMeters(0.1F);
+            mockLocation.setVerticalAccuracyMeters(1);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             mockLocation.setSpeedAccuracyMetersPerSecond(0.01F);
@@ -86,13 +83,12 @@ public class MockLocationProvider {
     /**
      * Removes the provider
      *
-     * @return Void
      */
     public void shutdown() {
         try {
             LocationManager lm = (LocationManager) ctx.getSystemService(Context.LOCATION_SERVICE);
             lm.removeTestProvider(providerName);
         }
-        catch(Exception e) {}
+        catch(Exception ignore) {}
     }
 }

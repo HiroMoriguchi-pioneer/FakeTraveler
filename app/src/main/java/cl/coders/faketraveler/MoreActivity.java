@@ -19,6 +19,7 @@ public class MoreActivity extends AppCompatActivity {
         setContentView(R.layout.activity_more);
         EditText editText2;
         EditText editText3;
+        EditText editText4;
         TextView textView3;
         Context context;
         SharedPreferences sharedPref;
@@ -31,8 +32,11 @@ public class MoreActivity extends AppCompatActivity {
 
         editText2 = findViewById(R.id.editText2);
         editText3 = findViewById(R.id.editText3);
-        editText2.setText(sharedPref.getString("howManyTimes", "1"));
+        editText4 = findViewById(R.id.editText4);
+        editText2.setText(sharedPref.getString("howManyTimes", "0"));
         editText3.setText(sharedPref.getString("timeInterval", "10"));
+        editText4.setText(sharedPref.getString("speedLimit", "40"));
+
 
         editText2.addTextChangedListener(new TextWatcher() {
 
@@ -44,7 +48,7 @@ public class MoreActivity extends AppCompatActivity {
                 SharedPreferences.Editor editor = sharedPref.edit();
 
                 if (editText2.getText().toString().isEmpty()) {
-                    editor.putString("howManyTimes", "1");
+                    editor.putString("howManyTimes", "0");
                     MainActivity.howManyTimes = 1;
                 } else {
                     editor.putString("howManyTimes", editText2.getText().toString());
@@ -76,11 +80,14 @@ public class MoreActivity extends AppCompatActivity {
                 SharedPreferences.Editor editor = mSharedPref.edit();
 
                 if (editText3.getText().toString().isEmpty()) {
-                    editor.putString("timeInterval", "10");
-                    MainActivity.timeInterval = 10;
+                    editor.putString("timeInterval", "1000");
+                    MainActivity.timeInterval = 1000;
                 } else {
                     editor.putString("timeInterval", editText3.getText().toString());
-                    MainActivity.timeInterval = Integer.parseInt(editText3.getText().toString());
+                    int value = Integer.parseInt(editText3.getText().toString());
+                    if (value>=100) {
+                        MainActivity.timeInterval = value;
+                    }
                 }
 
                 editor.commit();
@@ -95,6 +102,29 @@ public class MoreActivity extends AppCompatActivity {
             public void onTextChanged(CharSequence s, int start, int before, int count) {
 
             }
+        });
+
+        editText4.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void afterTextChanged(Editable s) {
+                EditText editText4 = findViewById(R.id.editText4);
+                Context context = getApplicationContext();
+                SharedPreferences mSharedPref = context.getSharedPreferences(MainActivity.sharedPrefKey, Context.MODE_PRIVATE);
+                SharedPreferences.Editor editor = mSharedPref.edit();
+
+                if (editText4.getText().toString().isEmpty()) {
+                    editor.putString("speedLimit", "40");
+                    MainActivity.speedLimit = 40;
+                } else {
+                    editor.putString("speedLimit", editText4.getText().toString());
+                    MainActivity.speedLimit = Integer.parseInt(editText4.getText().toString());
+                }
+                editor.commit();
+            }
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
         });
     }
 }
